@@ -9,8 +9,8 @@ const SPRITES_IN_SECONDARY: usize = 8;
 const SCREEN_WIDTH: usize = 256;
 const SCREEN_HEIGHT: usize = 240;
 pub struct Ppu {
-    nmi_state: bool,
-    pixels: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
+    pub nmi_state: bool,
+    pub pixels: [u8; SCREEN_WIDTH * SCREEN_HEIGHT * 4],
     primary_oam: [u8; SPRITES_IN_PRIMARY * OAM_DATA_SIZE],
     secondary_oam: [u8; SPRITES_IN_SECONDARY * OAM_DATA_SIZE],
     sprite_counter: [u8; SPRITES_IN_SECONDARY],
@@ -47,8 +47,8 @@ pub struct Ppu {
     background_counter: u8,
     scroll_x: u16,
     scroll_y: u16,
+    frame: bool,
 }
-
 
 pub trait BusOps {
     fn read(&mut self, address: u16) -> u8;
@@ -96,7 +96,14 @@ impl Ppu {
             background_counter: 0,
             scroll_x: 0,
             scroll_y: 0,
+            frame: false,
         }
+    }
+
+    pub fn fetch_frame(&mut self) -> bool {
+        let result = self.frame;
+        self.frame = false;
+        result
     }
 
     pub fn tick(&mut self, ppu_bus: &mut dyn BusOps) {
@@ -121,7 +128,7 @@ impl Ppu {
             if self.nmi_enable {
                 self.nmi_state = true;
             }
-            // TODO display _display.update();
+            self.frame = true;
         }
 
         self.render_x += 1;
@@ -447,7 +454,10 @@ impl Ppu {
             162, 160, 0, 0, 0, 0, 0, 0,
         ];
 
-        if color < 64 {
+        if (self.render_x as usize) < SCREEN_WIDTH
+            && (self.render_y as usize) < SCREEN_HEIGHT
+            && color < 64
+        {
             let pixel_index =
                 self.render_y as usize * SCREEN_WIDTH * 4 + self.render_x as usize * 4;
             let color_index = color as usize * 3;

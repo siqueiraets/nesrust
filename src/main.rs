@@ -1,10 +1,16 @@
+use anyhow::Result;
+use anyhow::*;
+
+use sfml::{
+    graphics::{Color, RenderTarget, RenderWindow, Sprite, Texture, Transformable},
+    window::{Event, Key, Style},
+};
+use std::path::Path;
+
 mod cpu;
 mod mapper;
 mod memory;
 mod ppu;
-use anyhow::Result;
-use anyhow::*;
-use std::path::Path;
 
 struct CpuBus<'a> {
     mapper: &'a mut mapper::Mapper,
@@ -48,73 +54,47 @@ impl<'a> cpu::BusOps for CpuBus<'a> {
     }
 }
 
-
-
-fn print_state(cpu: &cpu::Cpu6502, cycle: usize) {
-    // println!(
-    //     "{:04X} A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X} CYC:{}",
-    //     cpu.pc, cpu.a, cpu.x, cpu.y, cpu.sr, cpu.sp, cycle
-    // );
-}
-
-fn run(path: &Path) -> Result<()> {
-    let mut mapper = mapper::Mapper::new();
-    let mut memory = memory::Memory::new();
-    let mut cpu = cpu::Cpu6502::new();
-    let mut ppu = ppu::Ppu::new();
-    let mut cycles = 7 as usize;
-    cpu.pc = 0xC000;
-    cpu.sp = 0xFD;
-    cpu.sr = 0x24;
-
-    cpu.reset();
-
-    mapper.load(path)?;
+fn exec_frame(
+    cpu: &mut cpu::Cpu6502,
+    ppu: &mut ppu::Ppu,
+    mapper: &mut mapper::Mapper,
+    memory: &mut memory::Memory,
+    tick_offset: &mut usize,
+) {
     loop {
-        let mut bus = CpuBus::new(&mut mapper, &mut memory, &mut ppu);
-        let result = cpu.tick(&mut bus);
-
-        cycles += 1;
-        match result {
-            cpu::CycleResult::Error => {
-                println!("Error stage: {:#02X}", cpu.stage);
-                print_state(&cpu, cycles);
-
-                break;
-            }
-            cpu::CycleResult::EndInstruction => print_state(&cpu, cycles),
-            _ => {}
+        *tick_offset += 1;
+        if ppu.nmi_state {
+            ppu.nmi_state = false;
+            cpu.set_nmi();
         }
 
-        let mut test_result: [u8; 4] = [0; 4];
-        test_result[0] = mapper.cpu_read(0x6000);
-        test_result[1] = mapper.cpu_read(0x6001);
-        test_result[2] = mapper.cpu_read(0x6002);
-        test_result[3] = mapper.cpu_read(0x6003);
+        if *tick_offset == 3 {
+            *tick_offset = 0;
 
-        let result_valid = test_result[1] == 0xDE && test_result[2] == 0xB0;
-        if result_valid && test_result[0] != 0x80 {
-            println!(
-                "Test finished: {:#02X} {:#02X} {:#02X} {:#02X}",
-                test_result[0], test_result[1], test_result[2], test_result[3]
-            );
-            let mut index = 0;
-            loop {
-                let data = mapper.cpu_read(0x6004 + index);
-                if data == 0 {
+            // if dma.active() {
+            // dma.execute();
+            // } else {
+
+            let result = {
+                let mut bus = CpuBus::new(mapper, memory, ppu);
+                cpu.tick(&mut bus)
+            };
+            match result {
+                cpu::CycleResult::Error => {
+                    println!("Error stage: {:#02X}", cpu.stage);
                     break;
                 }
-                print!("{}", data as char);
-                index += 1;
+                _ => {}
             }
-            break;
+            // }
         }
 
-        // if cycles > 26554000 {
-        //     break;
-        // }
+        ppu.tick(mapper);
+        if ppu.fetch_frame()
+        {
+            break;
+        }
     }
-    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -122,7 +102,118 @@ fn main() -> Result<()> {
     if args.len() < 2 {
         return Err(anyhow!("Usage: <bin> <path>"));
     }
+
     let path = Path::new(&args[1]);
-    run(&path)?;
+    let mut mapper = mapper::Mapper::new();
+    mapper.load(path)?;
+
+    let mut cpu = cpu::Cpu6502::new();
+    cpu.pc = 0xC000;
+    cpu.sp = 0xFD;
+    cpu.sr = 0x24;
+    cpu.reset();
+
+    let mut ppu = ppu::Ppu::new();
+    let mut memory = memory::Memory::new();
+    let mut tick_offset: usize = 0;
+
+    let mut window = RenderWindow::new((800, 600), "Nesrust", Style::CLOSE, &Default::default());
+    window.set_framerate_limit(60);
+
+    const WIDTH: usize = 256;
+    const HEIGHT: usize = 240;
+    let mut texture = Texture::new(WIDTH as u32, HEIGHT as u32).unwrap();
+
+    loop {
+        while let Some(event) = window.poll_event() {
+            match event {
+                Event::Closed => return Ok(()),
+                Event::KeyPressed { code, .. } => {
+                    match code {
+                        Key::Escape => return Ok(()),
+                        Key::S => {
+                            // nesSystem.js.jd1 |= 1U << 4;
+                        }
+                        Key::Left => {
+                            // nesSystem.js.jd1 |= 1U << 1;
+                        }
+                        Key::Right => {
+                            // nesSystem.js.jd1 |= 1U << 0;
+                        }
+                        Key::Up => {
+                            // nesSystem.js.jd1 |= 1U << 3;
+                        }
+                        Key::Down => {
+                            // nesSystem.js.jd1 |= 1U << 2;
+                        }
+                        Key::Z => {
+                            // nesSystem.js.jd1 |= 1U << 7;
+                        }
+                        Key::X => {
+                            // nesSystem.js.jd1 |= 1U << 6;
+                        }
+                        Key::L => {
+                            // nesSystem.js.jd1 |= 1U << 5;
+                        }
+                        _ => (),
+                    }
+                }
+                Event::KeyReleased { code, .. } => {
+                    match code {
+                        Key::S => {
+                            // nesSystem.js.jd1 |= 1U << 4;
+                        }
+                        Key::Left => {
+                            // nesSystem.js.jd1 |= 1U << 1;
+                        }
+                        Key::Right => {
+                            // nesSystem.js.jd1 |= 1U << 0;
+                        }
+                        Key::Up => {
+                            // nesSystem.js.jd1 |= 1U << 3;
+                        }
+                        Key::Down => {
+                            // nesSystem.js.jd1 |= 1U << 2;
+                        }
+                        Key::Z => {
+                            // nesSystem.js.jd1 |= 1U << 7;
+                        }
+                        Key::X => {
+                            // nesSystem.js.jd1 |= 1U << 6;
+                        }
+                        Key::L => {
+                            // nesSystem.js.jd1 |= 1U << 5;
+                        }
+                        _ => (),
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        exec_frame(
+            &mut cpu,
+            &mut ppu,
+            &mut mapper,
+            &mut memory,
+            &mut tick_offset,
+        );
+
+        if window.is_open() {
+            window.clear(Color::BLACK);
+            unsafe {
+                texture.update_from_pixels(&ppu.pixels, WIDTH as u32, HEIGHT as u32, 0, 0);
+            }
+
+            let mut sprite = Sprite::new();
+            sprite.set_texture(&texture, false);
+            sprite.set_scale(sfml::system::Vector2f::new(4f32, 4f32));
+            window.draw(&sprite);
+            window.display();
+        } else {
+            break;
+        }
+    }
+
     Ok(())
 }

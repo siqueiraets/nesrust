@@ -104,11 +104,14 @@ impl Cpu6502 {
         }
     }
 
-    pub fn reset(&mut self)
-    {
+    pub fn reset(&mut self) {
         self.sp = 0xFD;
         self.sr = 0x24;
         self.interrupt_type = InterruptType::Reset;
+    }
+
+    pub fn set_nmi(&mut self) {
+        self.interrupt_type = InterruptType::Nmi;
     }
 
     pub fn tick(&mut self, bus: &mut dyn BusOps) -> CycleResult {
@@ -1688,7 +1691,6 @@ impl Cpu6502 {
                         (self.value, old_value, false)
                     }
                 };
-                
                 if !accumulator {
                     self.write_memory(bus, self.address, value);
                 }
