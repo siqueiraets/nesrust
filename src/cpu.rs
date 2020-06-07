@@ -190,7 +190,6 @@ impl Cpu6502 {
     }
 
     fn fetch_instruction(&mut self, opcode: u8) {
-        // println!("Fetch instruction {:#02X}", opcode);
         type Instruction = fn(&mut Cpu6502, &mut dyn BusOps) -> CycleResult;
         #[rustfmt::skip]
         let instructions: [(AddressingMode,InstructionType, Instruction);256] = [

@@ -164,7 +164,8 @@ impl Ppu {
                     self.sprite_size = if data & 0x20 != 0 { 0x16 } else { 0x8 };
                     self.nmi_enable = data & 0x80 != 0;
                     if self.nmi_enable && self.vblank_started {
-                        self.nmi_state = true;
+                        // TODO enabling this breaks rendering
+                        // self.nmi_state = true;
                     }
                 }
                 1 =>
@@ -183,7 +184,7 @@ impl Ppu {
                 // oamdata
                 {
                     self.primary_oam[self.oam_addr as usize] = data;
-                    self.oam_addr += 1;
+                    self.oam_addr = self.oam_addr.wrapping_add(1);
                 }
                 5 =>
                 // ppuscroll
@@ -296,7 +297,7 @@ impl Ppu {
     fn update_x_position(&mut self, ppu_bus: &mut dyn BusOps) {
         // TODO Check sprites at X=0
         for sprite_offset in 0..self.secondary_sprites {
-            self.sprite_counter[sprite_offset] -= 1;
+            self.sprite_counter[sprite_offset] = self.sprite_counter[sprite_offset].wrapping_sub(1);
             if self.sprite_counter[sprite_offset] != 0 {
                 continue;
             }

@@ -250,7 +250,7 @@ fn main() -> Result<()> {
 
             let mut sprite = Sprite::new();
             sprite.set_texture(&texture, false);
-            sprite.set_scale(sfml::system::Vector2f::new(4f32, 4f32));
+            sprite.set_scale(sfml::system::Vector2f::new(2f32, 2f32));
             window.draw(&sprite);
             window.display();
         } else {
