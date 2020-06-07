@@ -9,6 +9,7 @@ use std::path::Path;
 
 mod cpu;
 mod dma;
+mod joystick;
 mod mapper;
 mod memory;
 mod ppu;
@@ -28,6 +29,7 @@ struct CpuBus<'a> {
     memory: &'a mut memory::Memory,
     ppu: &'a mut ppu::Ppu,
     dma: &'a mut dma::Dma,
+    joystick: &'a mut joystick::Joystick,
 }
 
 impl<'a> CpuBus<'a> {
@@ -36,12 +38,14 @@ impl<'a> CpuBus<'a> {
         memory: &'a mut memory::Memory,
         ppu: &'a mut ppu::Ppu,
         dma: &'a mut dma::Dma,
+        joystick: &'a mut joystick::Joystick,
     ) -> Self {
         CpuBus {
             mapper,
             memory,
             ppu,
             dma,
+            joystick,
         }
     }
 }
@@ -50,13 +54,15 @@ impl<'a> cpu::BusOps for CpuBus<'a> {
     fn write(&mut self, address: u16, data: u8) {
         self.mapper.cpu_write(address, data);
         self.memory.cpu_write(address, data);
-        self.ppu.cpu_write(self.mapper, address, data);
+        self.joystick.cpu_write(address, data);
         self.dma.cpu_write(address, data);
+        self.ppu.cpu_write(self.mapper, address, data);
     }
 
     fn read(&mut self, address: u16) -> u8 {
         self.mapper.cpu_read(address)
             | self.memory.cpu_read(address)
+            | self.joystick.cpu_read(address)
             | self.ppu.cpu_read(self.mapper, address)
     }
 }
@@ -65,6 +71,7 @@ struct DmaBus<'a> {
     mapper: &'a mut mapper::Mapper,
     memory: &'a mut memory::Memory,
     ppu: &'a mut ppu::Ppu,
+    joystick: &'a mut joystick::Joystick,
 }
 
 impl<'a> DmaBus<'a> {
@@ -72,11 +79,13 @@ impl<'a> DmaBus<'a> {
         mapper: &'a mut mapper::Mapper,
         memory: &'a mut memory::Memory,
         ppu: &'a mut ppu::Ppu,
+        joystick: &'a mut joystick::Joystick,
     ) -> Self {
         DmaBus {
             mapper,
             memory,
             ppu,
+            joystick,
         }
     }
 }
@@ -85,12 +94,14 @@ impl<'a> cpu::BusOps for DmaBus<'a> {
     fn write(&mut self, address: u16, data: u8) {
         self.mapper.cpu_write(address, data);
         self.memory.cpu_write(address, data);
+        self.joystick.cpu_write(address, data);
         self.ppu.cpu_write(self.mapper, address, data);
     }
 
     fn read(&mut self, address: u16) -> u8 {
         self.mapper.cpu_read(address)
             | self.memory.cpu_read(address)
+            | self.joystick.cpu_read(address)
             | self.ppu.cpu_read(self.mapper, address)
     }
 }
@@ -101,6 +112,7 @@ fn exec_frame(
     mapper: &mut mapper::Mapper,
     memory: &mut memory::Memory,
     dma: &mut dma::Dma,
+    joystick: &mut joystick::Joystick,
     tick_offset: &mut usize,
 ) {
     loop {
@@ -114,11 +126,11 @@ fn exec_frame(
             *tick_offset = 0;
 
             if dma.active() {
-                let mut bus = DmaBus::new(mapper, memory, ppu);
+                let mut bus = DmaBus::new(mapper, memory, ppu, joystick);
                 dma.execute(&mut bus);
             } else {
                 let result = {
-                    let mut bus = CpuBus::new(mapper, memory, ppu, dma);
+                    let mut bus = CpuBus::new(mapper, memory, ppu, dma, joystick);
                     cpu.tick(&mut bus)
                 };
 
@@ -157,6 +169,7 @@ fn main() -> Result<()> {
     let mut ppu = ppu::Ppu::new();
     let mut memory = memory::Memory::new();
     let mut dma = dma::Dma::new();
+    let mut joystick = joystick::Joystick::new();
     let mut tick_offset: usize = 0;
 
     let mut window = RenderWindow::new((800, 600), "Nesrust", Style::CLOSE, &Default::default());
@@ -170,65 +183,61 @@ fn main() -> Result<()> {
         while let Some(event) = window.poll_event() {
             match event {
                 Event::Closed => return Ok(()),
-                Event::KeyPressed { code, .. } => {
-                    match code {
-                        Key::Escape => return Ok(()),
-                        Key::S => {
-                            // nesSystem.js.jd1 |= 1U << 4;
-                        }
-                        Key::Left => {
-                            // nesSystem.js.jd1 |= 1U << 1;
-                        }
-                        Key::Right => {
-                            // nesSystem.js.jd1 |= 1U << 0;
-                        }
-                        Key::Up => {
-                            // nesSystem.js.jd1 |= 1U << 3;
-                        }
-                        Key::Down => {
-                            // nesSystem.js.jd1 |= 1U << 2;
-                        }
-                        Key::Z => {
-                            // nesSystem.js.jd1 |= 1U << 7;
-                        }
-                        Key::X => {
-                            // nesSystem.js.jd1 |= 1U << 6;
-                        }
-                        Key::L => {
-                            // nesSystem.js.jd1 |= 1U << 5;
-                        }
-                        _ => (),
+                Event::KeyPressed { code, .. } => match code {
+                    Key::Escape => return Ok(()),
+                    Key::S => {
+                        joystick.press_start();
                     }
-                }
-                Event::KeyReleased { code, .. } => {
-                    match code {
-                        Key::S => {
-                            // nesSystem.js.jd1 |= 1U << 4;
-                        }
-                        Key::Left => {
-                            // nesSystem.js.jd1 |= 1U << 1;
-                        }
-                        Key::Right => {
-                            // nesSystem.js.jd1 |= 1U << 0;
-                        }
-                        Key::Up => {
-                            // nesSystem.js.jd1 |= 1U << 3;
-                        }
-                        Key::Down => {
-                            // nesSystem.js.jd1 |= 1U << 2;
-                        }
-                        Key::Z => {
-                            // nesSystem.js.jd1 |= 1U << 7;
-                        }
-                        Key::X => {
-                            // nesSystem.js.jd1 |= 1U << 6;
-                        }
-                        Key::L => {
-                            // nesSystem.js.jd1 |= 1U << 5;
-                        }
-                        _ => (),
+                    Key::Left => {
+                        joystick.press_left();
                     }
-                }
+                    Key::Right => {
+                        joystick.press_right();
+                    }
+                    Key::Up => {
+                        joystick.press_up();
+                    }
+                    Key::Down => {
+                        joystick.press_down();
+                    }
+                    Key::Z => {
+                        joystick.press_b();
+                    }
+                    Key::X => {
+                        joystick.press_a();
+                    }
+                    Key::L => {
+                        joystick.press_select();
+                    }
+                    _ => (),
+                },
+                Event::KeyReleased { code, .. } => match code {
+                    Key::S => {
+                        joystick.release_start();
+                    }
+                    Key::Left => {
+                        joystick.release_left();
+                    }
+                    Key::Right => {
+                        joystick.release_right();
+                    }
+                    Key::Up => {
+                        joystick.release_up();
+                    }
+                    Key::Down => {
+                        joystick.release_down();
+                    }
+                    Key::Z => {
+                        joystick.release_b();
+                    }
+                    Key::X => {
+                        joystick.release_a();
+                    }
+                    Key::L => {
+                        joystick.release_select();
+                    }
+                    _ => (),
+                },
                 _ => {}
             }
         }
@@ -239,6 +248,7 @@ fn main() -> Result<()> {
             &mut mapper,
             &mut memory,
             &mut dma,
+            &mut joystick,
             &mut tick_offset,
         );
 
